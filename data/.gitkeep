@@ -1,0 +1,12 @@
+├── data/
+│   ├── raw/
+│   │   ├── code_datasets/         # Collected multi-language code samples
+│   │   ├── error_samples/         # Labeled buggy code examples
+│   │   └── programming_questions/ # Problem + solution pairs
+│   ├── processed/
+│   │   ├── train.json
+│   │   ├── val.json
+│   │   └── test.json
+│   └── labels/
+│       ├── error_types.json       # Error taxonomy
+│       └── difficulty_levels.json # Skill level definitions

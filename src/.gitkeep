@@ -1,0 +1,45 @@
+├── src/
+│ ├── data_pipeline/
+│ │ ├── collector.py # Scraping + dataset collection
+│ │ ├── cleaner.py # Noise removal, normalization
+│ │ ├── tokenizer.py # Language-aware tokenization
+│ │ └── dataset_builder.py # Train/val/test split builder
+│ │
+│ ├── features/
+│ │ ├── code_embeddings.py # CodeBERT-based embeddings
+│ │ ├── ast_parser.py # Tree-sitter AST extraction
+│ │ └── syntax_tree_builder.py # Structured tree representations
+│ │
+│ ├── models/
+│ │ ├── error_detector.py # Multi-label error classifier
+│ │ ├── explanation_model.py # Fine-tuned explanation generator
+│ │ ├── hint_generator.py # Progressive hint model
+│ │ └── model_factory.py # Model loading and routing
+│ │
+│ ├── reasoning_engine/ # Core teaching intelligence
+│ │ ├── error_classifier.py # Error type → concept mapping
+│ │ ├── explanation_generator.py
+│ │ ├── hint_system.py # Step-by-step hint builder
+│ │ └── feedback_scorer.py # Code quality scoring
+│ │
+│ ├── training/
+│ │ ├── train.py
+│ │ ├── trainer.py
+│ │ ├── loss_functions.py
+│ │ └── metrics.py
+│ │
+│ ├── evaluation/
+│ │ ├── evaluate.py
+│ │ ├── learning_effectiveness_score.py
+│ │ └── error_analysis.py
+│ │
+│ ├── inference/
+│ │ ├── pipeline.py # ← Public API entrypoint
+│ │ ├── predict.py
+│ │ ├── explain.py
+│ │ └── tutor_mode.py # Interactive tutoring session
+│ │
+│ └── utils/
+│ ├── logger.py
+│ ├── config_loader.py
+│ └── helpers.py
