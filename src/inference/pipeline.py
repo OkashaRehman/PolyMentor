@@ -66,7 +66,7 @@ from src.inference.predict import (
 )
 from src.reasoning_engine.error_classifier import ErrorClassifier
 from src.reasoning_engine.feedback_scorer import FeedbackScorer
-from src.utils.config_loader import load_model_config
+from src.utils.config_loader import load_config
 from src.utils.logger import setup_logger
 
 logger = logging.getLogger(__name__)
@@ -76,9 +76,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SUPPORTED_LANGUAGES = {"python", "javascript", "cpp", "java"}
-SUPPORTED_LEVELS    = {"beginner", "intermediate", "advanced"}
+SUPPORTED_LEVELS = {"beginner", "intermediate", "advanced"}
 
-DEFAULT_LEVEL    = "beginner"
+DEFAULT_LEVEL = "beginner"
 DEFAULT_LANGUAGE = "python"
 DEFAULT_THRESHOLD = 0.5
 
@@ -86,6 +86,7 @@ DEFAULT_THRESHOLD = 0.5
 # ---------------------------------------------------------------------------
 # Result dataclass — what analyze() returns
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class AnalysisResult:
@@ -148,25 +149,26 @@ class AnalysisResult:
         Total analysis time in milliseconds.
     """
 
-    status:          str
-    error_type:      Optional[str]
-    error_types:     List[str]
-    error_location:  Optional[int]
-    explanation:     str
-    hint:            str
-    hints:           List[str]
-    concept_taught:  str
-    quality_score:   int
-    suggestions:     List[str]
-    confidences:     dict[str, float]
-    language:        str
-    level:           str
-    elapsed_ms:      float
+    status: str
+    error_type: Optional[str]
+    error_types: List[str]
+    error_location: Optional[int]
+    explanation: str
+    hint: str
+    hints: List[str]
+    concept_taught: str
+    quality_score: int
+    suggestions: List[str]
+    confidences: dict[str, float]
+    language: str
+    level: str
+    elapsed_ms: float
 
 
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+
 
 class PolyMentorPipeline:
     """
@@ -193,12 +195,10 @@ class PolyMentorPipeline:
     """
 
     def __init__(self, bundle: ModelBundle) -> None:
-        self._bundle    = bundle
+        self._bundle = bundle
         self._classifier = ErrorClassifier()
-        self._scorer     = FeedbackScorer()
-        logger.info(
-            "PolyMentorPipeline ready. Device: %s", bundle.device
-        )
+        self._scorer = FeedbackScorer()
+        logger.info("PolyMentorPipeline ready. Device: %s", bundle.device)
 
     # ------------------------------------------------------------------
     # Constructors
@@ -311,7 +311,7 @@ class PolyMentorPipeline:
         # Input validation
         # -----------------------------------------------------------------
         language = language.lower().strip()
-        level    = level.lower().strip()
+        level = level.lower().strip()
 
         if language not in SUPPORTED_LANGUAGES:
             raise ValueError(
@@ -377,7 +377,7 @@ class PolyMentorPipeline:
             language=language,
             level=level,
         )
-        concept        = classification.concept
+        concept = classification.concept
         error_location = classification.estimated_line(code)
 
         # -----------------------------------------------------------------
@@ -482,9 +482,7 @@ class PolyMentorPipeline:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _empty_result(
-        self, language: str, level: str, message: str
-    ) -> AnalysisResult:
+    def _empty_result(self, language: str, level: str, message: str) -> AnalysisResult:
         return AnalysisResult(
             status="clean",
             error_type=None,
@@ -546,35 +544,39 @@ async def _startup() -> None:
 # Request / Response schemas
 # ---------------------------------------------------------------------------
 
+
 class AnalyzeRequest(BaseModel):
-    code:     str  = Field(..., description="Source code to analyze.")
-    language: str  = Field(DEFAULT_LANGUAGE, description="python | javascript | cpp | java")
-    level:    str  = Field(DEFAULT_LEVEL, description="beginner | intermediate | advanced")
+    code: str = Field(..., description="Source code to analyze.")
+    language: str = Field(
+        DEFAULT_LANGUAGE, description="python | javascript | cpp | java"
+    )
+    level: str = Field(DEFAULT_LEVEL, description="beginner | intermediate | advanced")
     threshold: float = Field(DEFAULT_THRESHOLD, ge=0.0, le=1.0)
-    num_hints: int   = Field(3, ge=1, le=5)
+    num_hints: int = Field(3, ge=1, le=5)
     session_id: Optional[str] = Field(None, description="Opaque session identifier.")
 
 
 class AnalyzeResponse(BaseModel):
-    status:         str
-    error_type:     Optional[str]
-    error_types:    List[str]
+    status: str
+    error_type: Optional[str]
+    error_types: List[str]
     error_location: Optional[int]
-    explanation:    str
-    hint:           str
-    hints:          List[str]
+    explanation: str
+    hint: str
+    hints: List[str]
     concept_taught: str
-    quality_score:  int
-    suggestions:    List[str]
-    confidences:    dict
-    language:       str
-    level:          str
-    elapsed_ms:     float
+    quality_score: int
+    suggestions: List[str]
+    confidences: dict
+    language: str
+    level: str
+    elapsed_ms: float
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health() -> dict:
@@ -591,7 +593,9 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     Analyze a code snippet and return error explanations, hints, and quality feedback.
     """
     if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Model not loaded yet. Try again shortly.")
+        raise HTTPException(
+            status_code=503, detail="Model not loaded yet. Try again shortly."
+        )
 
     try:
         result = _pipeline.analyze(
