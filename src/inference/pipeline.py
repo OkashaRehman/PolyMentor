@@ -253,8 +253,7 @@ class PolyMentorPipeline:
         Example:
             mentor = PolyMentorPipeline.from_config("configs/model_config.local.yaml")
         """
-        setup_logger()
-        config = load_model_config(config_path)
+        config = load_config(config_path)
         bundle = ModelFactory.from_config(model_config=config, device=device)
         return cls(bundle)
 

@@ -102,7 +102,7 @@ if $API_MODE; then
     echo ""
 
     POLYMENTOR_MODEL_PATH="$MODEL_PATH" \
-    python -m uvicorn src.inference.pipeline:app \
+    python -m uvicorn src.api.app:app \
         --host "$API_HOST" \
         --port "$API_PORT" \
         --reload \
