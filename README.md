@@ -56,6 +56,35 @@ Open:
 http://127.0.0.1:8000/docs
 ```
 
+## Optional Local Fine-Tuning
+
+Groq remains the default runtime. If you want to experiment with a local
+PolyMentor LoRA adapter on an NVIDIA GPU such as an RTX 4050, install a CUDA
+PyTorch build first. On Windows, use Python 3.12 for CUDA training because
+PyTorch CUDA wheels are not available for every newest Python release.
+
+```bash
+deactivate  # if another venv is active
+py -3.12 -m venv venv312
+.\venv312\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -m pip install -r requirements-groq.txt
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
+```
+
+Then run:
+
+```bash
+bash scripts/train.sh
+```
+
+The default checkpoint path is:
+
+```text
+models_saved/polymentor-chatbot-lora
+```
+
 ## API Example
 
 ```bash
