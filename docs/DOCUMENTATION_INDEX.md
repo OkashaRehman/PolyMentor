@@ -6,6 +6,7 @@ Start here:
 
 - [Architecture](ARCHITECTURE.md)
 - [API Quick Start](API_QUICK_START.md)
+- [Hugging Face Deployment Guide](HUGGING_FACE_DEPLOYMENT_GUIDE.md)
 - [Getting Started Coding](getting_started_coding.md)
 
 Historical docs may still mention local training, CodeBERT, quality scoring, or
