@@ -25,8 +25,8 @@ PolyMentor should feel like a patient coding mentor:
 PolyMentor uses the Groq Python SDK and the Chat Completions API.
 
 ```bash
-pip install -e .
-pip install -r requirements-groq.txt
+python -m pip install -e .
+python -m pip install -r requirements-groq.txt
 export GROQ_API_KEY="your_groq_api_key"
 ```
 

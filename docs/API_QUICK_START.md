@@ -5,8 +5,8 @@ PolyMentor exposes a Groq-powered coding tutor API.
 ## Setup
 
 ```bash
-pip install -e .
-pip install -r requirements-groq.txt
+python -m pip install -e .
+python -m pip install -r requirements-groq.txt
 export GROQ_API_KEY="your_groq_api_key"
 ```
 
