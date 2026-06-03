@@ -10,20 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
+import sys
 from pathlib import Path
 from typing import Any
 
 import torch
-from datasets import Dataset
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-    Trainer,
-    TrainingArguments,
-)
+from torch.utils.data import DataLoader, Dataset
 
 
 LANGUAGE_BY_SUFFIX = {
@@ -160,6 +154,34 @@ def build_texts(args: argparse.Namespace, tokenizer: AutoTokenizer) -> list[str]
     return texts
 
 
+class TextDataset(Dataset):
+    def __init__(self, texts: list[str], tokenizer: Any, max_length: int) -> None:
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __len__(self) -> int:
+        return len(self.texts)
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        encoded = self.tokenizer(
+            self.texts[index],
+            truncation=True,
+            max_length=self.max_length,
+            padding="max_length",
+            return_tensors="pt",
+        )
+        input_ids = encoded["input_ids"].squeeze(0)
+        attention_mask = encoded["attention_mask"].squeeze(0)
+        labels = input_ids.clone()
+        labels[attention_mask == 0] = -100
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fine-tune PolyMentor chatbot LoRA adapter.")
     parser.add_argument("--base-model", default="Qwen/Qwen2.5-Coder-0.5B-Instruct")
@@ -190,35 +212,57 @@ def main() -> None:
             "PyTorch build before training on the RTX 4050."
         )
 
-    print(f"CUDA device: {torch.cuda.get_device_name(0)}")
-    print(f"Base model: {args.base_model}")
+    print(f"Python: {sys.version.split()[0]}", flush=True)
+    print(f"Torch: {torch.__version__}", flush=True)
+    device = torch.device("cuda")
+    print(f"CUDA device: {torch.cuda.get_device_name(0)}", flush=True)
+    print(
+        f"CUDA memory before model load: {torch.cuda.memory_allocated() / 1024**3:.2f} GB",
+        flush=True,
+    )
+    print(f"Base model: {args.base_model}", flush=True)
 
+    print("Loading training libraries...", flush=True)
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+    )
+    print("Training libraries loaded.", flush=True)
+
+    print("Loading tokenizer...", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    print("Building training texts...", flush=True)
     texts = build_texts(args, tokenizer)
     if not texts:
         raise SystemExit("No training examples found. Add JSON samples under data/.")
+    print(f"Training examples: {len(texts)}", flush=True)
 
-    dataset = Dataset.from_dict({"text": texts})
+    train_dataset = TextDataset(texts, tokenizer, args.max_length)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+    )
 
-    def tokenize(batch: dict[str, list[str]]) -> dict[str, Any]:
-        return tokenizer(
-            batch["text"],
-            truncation=True,
-            max_length=args.max_length,
-            padding=False,
-        )
-
-    tokenized = dataset.map(tokenize, batched=True, remove_columns=["text"])
-
+    print("Loading base model...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
-        torch_dtype=torch.float16,
-        device_map="auto",
+        dtype=torch.float16,
+        low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
+    model.to(device)
+    print(
+        f"CUDA memory after model load: {torch.cuda.memory_allocated() / 1024**3:.2f} GB",
+        flush=True,
+    )
+    model.config.use_cache = False
+    if hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
     model = prepare_model_for_kbit_training(model)
 
     lora_config = LoraConfig(
@@ -232,27 +276,45 @@ def main() -> None:
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.learning_rate,
-        fp16=True,
-        logging_steps=5,
-        save_strategy="epoch",
-        save_total_limit=3,
-        report_to=[],
-        remove_unused_columns=False,
-    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    total_steps = max(1, math.ceil(len(train_loader) * args.epochs / args.grad_accum))
+    print(f"Optimization steps: {total_steps}", flush=True)
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized,
-        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
-    )
-    trainer.train()
+    print("Starting training...", flush=True)
+    model.train()
+    optimizer.zero_grad(set_to_none=True)
+    global_step = 0
+    epochs = max(1, math.ceil(args.epochs))
+
+    for epoch in range(epochs):
+        running_loss = 0.0
+        for step, batch in enumerate(train_loader, start=1):
+            batch = {
+                key: value.to(device, non_blocking=True)
+                for key, value in batch.items()
+            }
+            outputs = model(**batch)
+            loss = outputs.loss / args.grad_accum
+            loss.backward()
+            running_loss += loss.item() * args.grad_accum
+
+            if step % args.grad_accum == 0 or step == len(train_loader):
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                global_step += 1
+
+                if global_step % 5 == 0 or global_step == 1:
+                    avg_loss = running_loss / step
+                    print(
+                        f"epoch={epoch + 1}/{epochs} step={global_step}/{total_steps} loss={avg_loss:.4f}",
+                        flush=True,
+                    )
+
+        epoch_dir = Path(args.output_dir) / f"checkpoint-epoch-{epoch + 1}"
+        epoch_dir.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(epoch_dir)
+        tokenizer.save_pretrained(epoch_dir)
+        print(f"Saved epoch checkpoint to {epoch_dir}", flush=True)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -270,7 +332,7 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
-    print(f"Saved PolyMentor LoRA checkpoint to {output_dir}")
+    print(f"Saved PolyMentor LoRA checkpoint to {output_dir}", flush=True)
 
 
 if __name__ == "__main__":
