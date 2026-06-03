@@ -21,6 +21,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# Import advanced analyzer
+from src.analysis.advanced_analyzer import AdvancedCodeAnalyzer
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -606,5 +609,269 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "analyze": "POST /analyze",
+        "analyze_detailed": "POST /analyze/detailed",
+        "quality_score": "POST /quality-score",
+        "suggestions": "POST /suggestions",
+        "supported_languages": "GET /languages",
         "mode": "ml" if _pipeline is not None else "rule_based",
+    }
+
+
+# =========================================================================
+# ADVANCED ANALYSIS ENDPOINTS
+# =========================================================================
+
+
+@app.get("/languages")
+async def get_supported_languages():
+    """Get list of supported programming languages."""
+    return {
+        "supported_languages": ["python", "javascript", "cpp", "java"],
+        "total": 4,
+        "details": {
+            "python": "Python 3.x",
+            "javascript": "JavaScript (ES6+)",
+            "cpp": "C++ (C++11+)",
+            "java": "Java (8+)",
+        }
+    }
+
+
+@app.post("/analyze/detailed")
+async def analyze_detailed(request: AnalyzeRequest):
+    """
+    Perform advanced, detailed code analysis with comprehensive error categorization.
+    
+    Returns detailed errors with:
+    - Error category (syntax, logic, type, performance, security, etc.)
+    - Severity level (critical, high, medium, low)
+    - Line numbers and code snippets
+    - Specific suggestions for fixes
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "status": "empty",
+            "language": language,
+            "code_length": 0,
+            "total_errors": 0,
+            "errors": [],
+            "quality_score": 0,
+            "elapsed_ms": round((time.perf_counter() - start) * 1000, 2),
+        }
+    
+    # Use advanced analyzer
+    analysis = AdvancedCodeAnalyzer.analyze(code, language)
+    
+    # Calculate quality score
+    quality_score = AdvancedCodeAnalyzer.get_quality_score(code, language)
+    
+    # Get suggestions
+    suggestions = AdvancedCodeAnalyzer.get_real_time_suggestions(code, language)
+    
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "status": "analyzed",
+        "language": language,
+        "supported": analysis["supported"],
+        "code_length": len(code),
+        "total_errors": analysis["total_errors"],
+        "severity_breakdown": {
+            "critical": analysis["critical_count"],
+            "high": analysis["high_count"],
+            "medium": analysis["medium_count"],
+            "low": analysis["low_count"],
+        },
+        "errors": analysis["errors"],
+        "quality_score": quality_score,
+        "suggestions": suggestions,
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+@app.post("/quality-score")
+async def get_quality_score(request: AnalyzeRequest):
+    """
+    Get only the quality score (0-100) for the provided code.
+    
+    Score is based on:
+    - Syntax errors (critical)
+    - Logic errors (high)
+    - Code style issues (medium)
+    - Best practice violations (low)
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "quality_score": 0,
+            "message": "No code provided",
+            "elapsed_ms": 0.0,
+        }
+    
+    score = AdvancedCodeAnalyzer.get_quality_score(code, language)
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    # Provide interpretation
+    if score >= 90:
+        interpretation = "Excellent"
+    elif score >= 80:
+        interpretation = "Good"
+    elif score >= 70:
+        interpretation = "Acceptable"
+    elif score >= 50:
+        interpretation = "Needs improvement"
+    else:
+        interpretation = "Critical issues"
+    
+    return {
+        "quality_score": score,
+        "interpretation": interpretation,
+        "language": language,
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+@app.post("/suggestions")
+async def get_suggestions(request: AnalyzeRequest):
+    """
+    Get real-time coding suggestions and improvements for the provided code.
+    
+    Returns actionable suggestions for:
+    - Fixing errors
+    - Improving code quality
+    - Following best practices
+    - Performance improvements
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "suggestions": [],
+            "total_suggestions": 0,
+            "message": "No code provided",
+            "elapsed_ms": 0.0,
+        }
+    
+    suggestions = AdvancedCodeAnalyzer.get_real_time_suggestions(code, language)
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "suggestions": suggestions,
+        "total_suggestions": len(suggestions),
+        "language": language,
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+@app.post("/analyze/errors-by-category")
+async def analyze_errors_by_category(request: AnalyzeRequest):
+    """
+    Analyze code and group errors by category.
+    
+    Categories include:
+    - Syntax errors
+    - Logical errors
+    - Type errors
+    - Performance issues
+    - Security issues
+    - Style issues
+    - Best practice violations
+    - Resource leaks
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "status": "empty",
+            "categories": {},
+            "elapsed_ms": 0.0,
+        }
+    
+    analysis = AdvancedCodeAnalyzer.analyze(code, language)
+    
+    # Group errors by category
+    categories = {}
+    for error in analysis["errors"]:
+        category = error["category"]
+        if category not in categories:
+            categories[category] = []
+        categories[category].append(error)
+    
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "status": "analyzed",
+        "language": language,
+        "total_errors": analysis["total_errors"],
+        "categories": categories,
+        "category_count": len(categories),
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+@app.post("/analyze/by-severity")
+async def analyze_by_severity(request: AnalyzeRequest):
+    """
+    Analyze code and return errors organized by severity level.
+    
+    Severity levels:
+    - CRITICAL: Code won't run (immediate fixes needed)
+    - HIGH: Logic errors, missing checks (important fixes)
+    - MEDIUM: Inefficiency, style issues (should fix)
+    - LOW: Minor suggestions (nice to fix)
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "status": "empty",
+            "severity_levels": {},
+            "elapsed_ms": 0.0,
+        }
+    
+    analysis = AdvancedCodeAnalyzer.analyze(code, language)
+    
+    # Group errors by severity
+    severity_levels = {
+        "critical": [],
+        "high": [],
+        "medium": [],
+        "low": [],
+    }
+    
+    for error in analysis["errors"]:
+        severity = error["severity"]
+        if severity in severity_levels:
+            severity_levels[severity].append(error)
+    
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "status": "analyzed",
+        "language": language,
+        "total_errors": analysis["total_errors"],
+        "severity_levels": severity_levels,
+        "critical_count": len(severity_levels["critical"]),
+        "high_count": len(severity_levels["high"]),
+        "medium_count": len(severity_levels["medium"]),
+        "low_count": len(severity_levels["low"]),
+        "elapsed_ms": round(elapsed, 2),
     }
