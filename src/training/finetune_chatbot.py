@@ -223,6 +223,7 @@ def main() -> None:
     print(f"Base model: {args.base_model}", flush=True)
 
     print("Loading training libraries...", flush=True)
+    from huggingface_hub import hf_hub_download
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import (
         AutoModelForCausalLM,
@@ -230,8 +231,29 @@ def main() -> None:
     )
     print("Training libraries loaded.", flush=True)
 
+    print("Downloading/checking base model files...", flush=True)
+    model_path = Path("models_saved") / "hf_cache" / args.base_model.replace("/", "--")
+    model_path.mkdir(parents=True, exist_ok=True)
+    required_files = [
+        "config.json",
+        "generation_config.json",
+        "merges.txt",
+        "model.safetensors",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+    ]
+    for filename in required_files:
+        print(f"Downloading/checking {filename}...", flush=True)
+        hf_hub_download(
+            repo_id=args.base_model,
+            filename=filename,
+            local_dir=model_path,
+        )
+    print(f"Base model files ready: {model_path}", flush=True)
+
     print("Loading tokenizer...", flush=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -250,7 +272,7 @@ def main() -> None:
 
     print("Loading base model...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
+        model_path,
         dtype=torch.float16,
         low_cpu_mem_usage=True,
         trust_remote_code=True,

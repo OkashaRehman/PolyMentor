@@ -124,6 +124,8 @@ fi
 echo "Log file:    $LOG_FILE"
 echo ""
 
+export HF_HUB_DISABLE_SYMLINKS_WARNING=1
+
 set +e
 "$PYTHON" -u src/training/finetune_chatbot.py "${ARGS[@]}" 2>&1 | tee "$LOG_FILE"
 STATUS=${PIPESTATUS[0]}
