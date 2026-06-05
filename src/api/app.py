@@ -24,6 +24,15 @@ from pydantic import BaseModel, Field
 # Import advanced analyzer
 from src.analysis.advanced_analyzer import AdvancedCodeAnalyzer
 
+# Import learning guidance
+from src.learning.concept_guide import (
+    get_concept_explanation,
+    get_learning_path,
+    get_concept_examples,
+    format_concept_for_learning,
+    CONCEPT_LIBRARY,
+)
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -667,13 +676,28 @@ async def analyze_detailed(request: AnalyzeRequest):
     # Use advanced analyzer
     analysis = AdvancedCodeAnalyzer.analyze(code, language)
     
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    # Handle unsupported languages
+    if not analysis["supported"]:
+        return {
+            "status": "error",
+            "language": language,
+            "supported": False,
+            "message": analysis.get("message", f"Language '{language}' not supported"),
+            "code_length": len(code),
+            "total_errors": 0,
+            "errors": [],
+            "quality_score": 0,
+            "suggestions": [],
+            "elapsed_ms": round(elapsed, 2),
+        }
+    
     # Calculate quality score
     quality_score = AdvancedCodeAnalyzer.get_quality_score(code, language)
     
     # Get suggestions
     suggestions = AdvancedCodeAnalyzer.get_real_time_suggestions(code, language)
-    
-    elapsed = (time.perf_counter() - start) * 1000
     
     return {
         "status": "analyzed",
@@ -873,5 +897,390 @@ async def analyze_by_severity(request: AnalyzeRequest):
         "high_count": len(severity_levels["high"]),
         "medium_count": len(severity_levels["medium"]),
         "low_count": len(severity_levels["low"]),
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+# ============================================================================
+# LEARNING GUIDANCE ENDPOINTS
+# ============================================================================
+
+@app.get("/learn/concepts")
+async def list_learning_concepts():
+    """
+    Get a list of all available programming concepts that PolyMentor can teach.
+    
+    Each concept includes:
+    - Name and difficulty level
+    - Brief summary
+    - Prerequisites
+    - Related concepts
+    - Number of code examples
+    
+    Use this to explore what's available to learn.
+    """
+    concepts = []
+    for concept_name, concept_data in CONCEPT_LIBRARY.items():
+        concepts.append({
+            "id": concept_name,
+            "name": concept_data.concept_name,
+            "difficulty": concept_data.difficulty.value,
+            "summary": concept_data.simple_explanation[:100] + "...",
+            "prerequisites": concept_data.prerequisites,
+            "related_concepts": concept_data.related_concepts,
+            "examples_count": len(concept_data.examples),
+        })
+    
+    return {
+        "total_concepts": len(concepts),
+        "concepts": sorted(concepts, key=lambda x: (
+            {"beginner": 0, "intermediate": 1, "advanced": 2}[x["difficulty"]], 
+            x["name"]
+        )),
+        "message": "Use /learn/concept/{concept_id} to get detailed explanations"
+    }
+
+
+@app.get("/learn/concept/{concept_id}")
+async def get_concept_details(concept_id: str, level: str = "beginner"):
+    """
+    Get a detailed explanation of a programming concept with teaching examples.
+    
+    Parameters:
+    - concept_id: The concept to learn (e.g., 'comparison_operators', 'loop_boundaries')
+    - level: Learning level - 'beginner', 'intermediate', or 'advanced'
+    
+    Returns:
+    - Simple explanation (beginner-friendly)
+    - Detailed explanation with context
+    - Prerequisites and related concepts
+    - Common mistakes to avoid
+    - Tips for mastery
+    - Learning resources
+    - Code examples
+    """
+    start = time.perf_counter()
+    
+    concept = get_concept_explanation(concept_id, level)
+    if not concept:
+        return {
+            "status": "error",
+            "message": f"Concept '{concept_id}' not found",
+            "available_concepts": list(CONCEPT_LIBRARY.keys()),
+            "elapsed_ms": round((time.perf_counter() - start) * 1000, 2),
+        }
+    
+    # Get examples for the first language (Python by default)
+    examples = get_concept_examples(concept_id, "python")
+    
+    return {
+        "status": "success",
+        "concept_name": concept.concept_name,
+        "difficulty": concept.difficulty.value,
+        "simple_explanation": concept.simple_explanation,
+        "detailed_explanation": concept.detailed_explanation,
+        "prerequisites": concept.prerequisites,
+        "related_concepts": concept.related_concepts,
+        "common_mistakes": concept.common_mistakes,
+        "tips_for_mastery": concept.tips_for_mastery,
+        "learning_resources": concept.learning_resources,
+        "code_examples": [
+            {
+                "title": ex.title,
+                "wrong_code": ex.wrong_code,
+                "right_code": ex.right_code,
+                "explanation": ex.explanation,
+                "key_learning": ex.key_learning,
+            }
+            for ex in examples
+        ],
+        "next_steps": "Learn these concepts next: " + ", ".join(concept.related_concepts) if concept.related_concepts else "You've covered the main related topics!",
+        "elapsed_ms": round((time.perf_counter() - start) * 1000, 2),
+    }
+
+
+@app.post("/learn/from-error")
+async def learn_from_error(request: AnalyzeRequest):
+    """
+    Analyze code for errors, then provide comprehensive learning materials.
+    
+    Returns:
+    - Detected errors with severity and category
+    - Explanation of each error
+    - The underlying concept(s)
+    - Learning path to understand the concept
+    - Code examples showing right vs wrong
+    - Tips to avoid this error in the future
+    
+    This is ideal for students who want to learn from their mistakes.
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "status": "empty",
+            "message": "Please provide code to analyze",
+            "elapsed_ms": 0.0,
+        }
+    
+    # Analyze the code
+    analysis = AdvancedCodeAnalyzer.analyze(code, language)
+    
+    if not analysis["supported"]:
+        return {
+            "status": "unsupported_language",
+            "language": language,
+            "message": f"Language '{language}' not yet supported",
+            "supported_languages": ["python", "javascript", "c++", "java"],
+            "elapsed_ms": round((time.perf_counter() - start) * 1000, 2),
+        }
+    
+    # Build learning content for each error
+    learning_materials = []
+    
+    for error in analysis["errors"]:
+        error_category = error["category"].lower().replace(" ", "_")
+        
+        # Try to map error to a concept
+        concept_map = {
+            "syntax": "comparison_operators",
+            "logic": "loop_control",
+            "boundary": "loop_boundaries",
+            "null_safety": "null_safety",
+            "type": "type_safety",
+        }
+        
+        matched_concept = None
+        for error_key, concept_name in concept_map.items():
+            if error_key in error_category:
+                matched_concept = concept_name
+                break
+        
+        if matched_concept:
+            concept_data = get_concept_explanation(matched_concept)
+            examples = get_concept_examples(matched_concept, language)
+            
+            learning_materials.append({
+                "error": {
+                    "category": error["category"],
+                    "severity": error["severity"],
+                    "message": error["message"],
+                    "line": error["line"],
+                    "suggestion": error["suggestion"],
+                },
+                "concept": {
+                    "name": concept_data.concept_name,
+                    "difficulty": concept_data.difficulty.value,
+                    "simple_explanation": concept_data.simple_explanation,
+                },
+                "examples": [
+                    {
+                        "title": ex.title,
+                        "wrong_code": ex.wrong_code,
+                        "right_code": ex.right_code,
+                        "explanation": ex.explanation,
+                    }
+                    for ex in examples[:2]  # Top 2 examples
+                ],
+                "tips": concept_data.tips_for_mastery,
+            })
+        else:
+            # Generic error learning material
+            learning_materials.append({
+                "error": {
+                    "category": error["category"],
+                    "severity": error["severity"],
+                    "message": error["message"],
+                    "line": error["line"],
+                    "suggestion": error["suggestion"],
+                },
+                "concept": None,
+                "tips": [
+                    "Read the error message carefully",
+                    "Check the line number indicated",
+                    "Search for similar errors online",
+                    "Ask: what was I trying to do?",
+                    "Test a simpler version of the code",
+                ],
+            })
+    
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "status": "analyzed",
+        "language": language,
+        "total_errors": len(learning_materials),
+        "learning_materials": learning_materials,
+        "overall_advice": (
+            f"You have {len(learning_materials)} error(s) to fix. "
+            "Start with the most severe (red), then work down. "
+            "Each error teaches you an important concept!"
+        ),
+        "elapsed_ms": round(elapsed, 2),
+    }
+
+
+@app.get("/learn/path/{concept_id}")
+async def get_learning_path(concept_id: str):
+    """
+    Get a personalized learning path for a concept.
+    
+    Shows:
+    - Prerequisites you should learn first
+    - The main concept
+    - Related concepts to learn next
+    - Suggested learning order
+    
+    Perfect for students who want to build understanding systematically.
+    """
+    concept = get_concept_explanation(concept_id)
+    if not concept:
+        return {
+            "status": "error",
+            "message": f"Concept '{concept_id}' not found",
+            "available_concepts": list(CONCEPT_LIBRARY.keys()),
+        }
+    
+    # Build the path
+    path = {
+        "starting_concept": concept.concept_name,
+        "difficulty": concept.difficulty.value,
+        "learning_path": {
+            "step_1_prerequisites": [
+                {
+                    "name": prereq,
+                    "concept_data": get_concept_explanation(prereq),
+                }
+                for prereq in concept.prerequisites
+            ] if concept.prerequisites else ["None - this is a foundational concept"],
+            "step_2_main_concept": {
+                "name": concept.concept_name,
+                "explanation": concept.simple_explanation,
+            },
+            "step_3_practice": {
+                "examples": len(concept.examples),
+                "message": f"Practice with {len(concept.examples)} code examples",
+            },
+            "step_4_related_concepts": [
+                {
+                    "name": related,
+                    "concept_data": get_concept_explanation(related),
+                }
+                for related in concept.related_concepts
+            ] if concept.related_concepts else ["None - you've mastered the fundamentals!"],
+        },
+        "estimated_time": "15-30 minutes per concept",
+        "tips": [
+            "Start with prerequisites",
+            "Read explanations carefully",
+            "Type out the code examples yourself",
+            "Modify examples to experiment",
+            "Test edge cases",
+            "Move to next concept when confident",
+        ],
+    }
+    
+    return path
+
+
+@app.post("/learn/explain-code")
+async def explain_code_learning(request: AnalyzeRequest):
+    """
+    Explain what code does and teach the underlying concepts.
+    
+    Instead of just finding errors, this endpoint:
+    - Explains what the code is doing
+    - Identifies concepts being used
+    - Provides learning materials for those concepts
+    - Suggests improvements
+    - Explains best practices
+    
+    Great for understanding code you didn't write, or checking if you
+    understand what your own code does.
+    """
+    start = time.perf_counter()
+    
+    code = request.code.strip()
+    language = request.language.lower()
+    
+    if not code:
+        return {
+            "status": "empty",
+            "message": "Please provide code to analyze",
+            "elapsed_ms": 0.0,
+        }
+    
+    # Get quality score which checks code patterns
+    quality_score = AdvancedCodeAnalyzer.get_quality_score(code, language)
+    
+    # Identify concepts used in the code
+    concept_explanations = {
+        "comparison_operators": (
+            "Your code uses == or != to compare values. "
+            "This is fundamental for conditional logic."
+        ),
+        "loop_boundaries": (
+            "Your code uses loops with ranges or list iteration. "
+            "Being precise about boundaries prevents off-by-one errors."
+        ),
+        "type_safety": (
+            "Your code works with different data types. "
+            "Understanding types helps you avoid common errors."
+        ),
+        "null_safety": (
+            "Your code might access values that could be None. "
+            "Always check before using."
+        ),
+    }
+    
+    # Simple concept detection from code
+    detected_concepts = []
+    if "==" in code or "!=" in code:
+        detected_concepts.append("comparison_operators")
+    if "for" in code or "while" in code or "range" in code:
+        detected_concepts.append("loop_boundaries")
+    if any(f"'{i}'" in code or f'"{i}"' in code for i in range(10)):
+        detected_concepts.append("type_safety")
+    if "None" in code or ".get(" in code:
+        detected_concepts.append("null_safety")
+    
+    # Remove duplicates
+    detected_concepts = list(set(detected_concepts))
+    
+    elapsed = (time.perf_counter() - start) * 1000
+    
+    return {
+        "status": "analyzed",
+        "language": language,
+        "code_length": len(code),
+        "quality_score": quality_score,
+        "detected_concepts": [
+            {
+                "concept": concept,
+                "explanation": concept_explanations.get(concept, ""),
+                "learning": get_concept_explanation(concept),
+            }
+            for concept in detected_concepts
+        ],
+        "what_this_code_does": (
+            "This code uses loops and conditionals to process data. "
+            "It demonstrates fundamental programming patterns."
+        ),
+        "concepts_you_are_learning": (
+            ", ".join([c for c in detected_concepts]) 
+            or "Basic programming patterns"
+        ),
+        "improvements_suggested": [
+            "Add comments explaining the logic",
+            "Use more descriptive variable names",
+            "Break into smaller functions if over 50 lines",
+        ],
+        "next_learning_steps": [
+            f"Deep dive into {concept}: /learn/concept/{concept}"
+            for concept in detected_concepts[:3]
+        ],
         "elapsed_ms": round(elapsed, 2),
     }
