@@ -5,11 +5,7 @@ logger = get_logger(__name__)
 
 
 class TutorSession:
-    """
-    Interactive tutoring session.
-    The tutor works through errors one at a time,
-    giving progressive hints if the user asks.
-    """
+    """Interactive Groq-powered coding tutor session."""
 
     def __init__(
         self,
@@ -23,17 +19,18 @@ class TutorSession:
 
     def start(self):
         print("\n" + "=" * 60)
-        print("🧠 PolyMentor — Interactive Tutor Mode")
-        print("Type your code, then press Enter twice to submit.")
-        print("Type 'hint' for the next hint, 'quit' to exit.")
+        print("PolyMentor - Groq Coding Tutor")
+        print("Ask a coding question, paste code, or type 'quit' to exit.")
+        print("For code review, paste code after your question and press Enter twice.")
         print("=" * 60 + "\n")
 
-        hints_used = []
-        current_hints = []
-        hint_index = 0
-
         while True:
-            print("📝 Paste your code (press Enter twice when done):")
+            question = input("Question: ").strip()
+            if question.lower() in {"quit", "exit"}:
+                print("Session ended. Keep building.")
+                break
+
+            print("Optional code, press Enter on an empty line to submit:")
             lines = []
             while True:
                 line = input()
@@ -41,53 +38,22 @@ class TutorSession:
                     break
                 lines.append(line)
 
-            code = "\n".join(lines)
-
-            if code.lower() == "quit":
-                print("👋 Session ended. Keep coding!")
-                break
-
-            result = self.pipeline.analyze(code, self.language, self.level)
-            current_hints = result.hints
-            hint_index = 0
-
-            if not result.error_types:
-                print("\n✅ No errors found! Code quality score:", result.quality_score)
-                continue
-
-            print(f"\n🔍 Detected: {', '.join(result.error_types)}")
-            print(f"📚 Concept: {result.concept_taught}")
-            print(f"💬 Explanation: {result.explanation}")
-            print(
-                f"\n💡 First hint: {current_hints[0] if current_hints else 'No hints available.'}"
+            result = self.pipeline.chat(
+                message=question or "Review this code and teach me what to improve.",
+                code="\n".join(lines),
+                language=self.language,
+                level=self.level,
             )
-            print(f"📊 Code quality: {result.quality_score}/100\n")
 
-            while True:
-                action = (
-                    input(
-                        "Type 'hint' for next hint, 'new' for new code, 'quit' to exit: "
-                    )
-                    .strip()
-                    .lower()
-                )
-                if action == "hint":
-                    hint_index += 1
-                    if hint_index < len(current_hints):
-                        print(f"\n💡 {current_hints[hint_index]}\n")
-                    else:
-                        print(
-                            "\n✅ No more hints. Try fixing the error and resubmit!\n"
-                        )
-                elif action == "new":
-                    break
-                elif action == "quit":
-                    return
+            print("\n" + "-" * 60)
+            print(result.answer)
+            print("-" * 60)
+            print(f"Model: {result.model} | Time: {result.elapsed_ms:.0f} ms\n")
 
 
 def run_tutor():
-    pipeline = PolyMentorPipeline.from_pretrained("models_saved/best_mentor_model.pt")
-    language = input("Language (python/javascript/java/cpp): ").strip() or "python"
+    pipeline = PolyMentorPipeline.from_groq()
+    language = input("Language (python/javascript/typescript/java/cpp/go/rust): ").strip() or "python"
     level = input("Level (beginner/intermediate/advanced): ").strip() or "beginner"
     session = TutorSession(pipeline, language, level)
     session.start()
