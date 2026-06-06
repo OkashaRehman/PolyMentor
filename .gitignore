@@ -24,3 +24,9 @@ Thumbs.db
 # Env
 .env
 *.local.yaml
+
+# make-folder-txt
+.txtconfig
+.txtignore
+PolyMentor.txt
+venv312/
