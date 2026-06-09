@@ -23,6 +23,7 @@ from src.analysis.advanced_analyzer import AdvancedCodeAnalyzer, ErrorSeverity, 
 from src.learning.concept_guide import CONCEPT_LIBRARY, get_concept_explanation, get_learning_path
 from src.reasoning_engine.hint_system import HintSystem
 from src.reasoning_engine.feedback_scorer import FeedbackScorer
+from src.inference.pipeline import PolyMentorPipeline
 
 
 # ============================================================================
@@ -45,11 +46,37 @@ app.add_middleware(
 # Initialize core systems
 hint_system = HintSystem()
 feedback_scorer = FeedbackScorer()
+pipeline = PolyMentorPipeline()
 
 
 # ============================================================================
 # Request/Response Models
 # ============================================================================
+
+class ChatRequest(BaseModel):
+    """Request for chatbot interaction"""
+    message: str = Field(..., description="User message or question")
+    code: str = Field(default="", description="Optional code to analyze")
+    language: str = Field(default="python", description="Programming language")
+    level: Literal["beginner", "intermediate", "advanced"] = Field(
+        default="beginner",
+        description="Learner skill level"
+    )
+
+
+class ChatResponse(BaseModel):
+    """Response from chatbot"""
+    status: str
+    answer: str
+    language: str
+    level: str
+    model: str
+    suspected_bugs: list = Field(default_factory=list)
+    fixed_code: Optional[str] = None
+    lesson: Optional[str] = None
+    next_steps: list = Field(default_factory=list)
+    elapsed_ms: float
+
 
 class AnalyzeRequest(BaseModel):
     """Request for code analysis"""
@@ -606,6 +633,39 @@ def explain_code(request: AnalyzeRequest):
 # ============================================================================
 # Smart Hint System Endpoints (3 endpoints)
 # ============================================================================
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
+    """
+    Chat interface with PolyMentor AI tutor.
+    
+    Supports:
+    - Teaching programming concepts
+    - Finding bugs in code
+    - Explaining errors
+    - Generating fixed code
+    - Adaptive learning guidance
+    """
+    response = pipeline.chat(
+        message=request.message,
+        code=request.code,
+        language=request.language,
+        level=request.level,
+    )
+    
+    return {
+        "status": response.status,
+        "answer": response.answer,
+        "language": response.language,
+        "level": response.level,
+        "model": response.model,
+        "suspected_bugs": response.suspected_bugs,
+        "fixed_code": response.fixed_code,
+        "lesson": response.lesson,
+        "next_steps": response.next_steps,
+        "elapsed_ms": response.elapsed_ms,
+    }
+
 
 @app.get("/learn/hints/{error_type}", response_model=HintsResponse)
 def get_hints(
